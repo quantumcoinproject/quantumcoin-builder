@@ -120,11 +120,16 @@ export class RunPanel {
     onSdkSettled(() => this.renderDeploySection());
   }
 
-  setResult(result: CompileResult): void {
+  setResult(result: CompileResult, activePath?: string): void {
     this.result = result;
-    const names = result.contracts.filter((c) => c.bytecode).map((c) => c.contractName);
+    const deployable = result.contracts.filter((c) => c.bytecode);
+    const names = deployable.map((c) => c.contractName);
     if (!this.selected || !names.includes(this.selected)) {
-      this.selected = names[0] ?? null;
+      // Prefer a deployable contract from the active file (fall back to first).
+      const fromActive = activePath
+        ? deployable.find((c) => c.sourcePath === activePath)?.contractName
+        : undefined;
+      this.selected = fromActive ?? names[0] ?? null;
     }
     this.renderDeploySection();
   }

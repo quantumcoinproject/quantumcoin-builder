@@ -211,6 +211,81 @@ export function alertDialog(title: string, body: string | Node, okLabel = "OK"):
   });
 }
 
+export interface ChoiceOption {
+  id: string;
+  label: string;
+  /** Render as the emphasized (non-ghost) button and receive initial focus. */
+  primary?: boolean;
+}
+
+/**
+ * Present a message with several choice buttons (plus Cancel). Resolves the
+ * chosen option id, or null on Cancel / backdrop / Escape.
+ */
+export function choiceDialog(
+  title: string,
+  message: string,
+  options: ChoiceOption[],
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const root = document.createElement("div");
+    root.className = "modal-root";
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+
+    const h = document.createElement("h3");
+    h.textContent = title;
+    const p = document.createElement("div");
+    p.style.margin = "0 0 12px";
+    p.style.fontSize = "12px";
+    p.style.color = "var(--text-muted)";
+    p.textContent = message;
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    let settled = false;
+    const done = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      root.remove();
+      resolve(value);
+    };
+
+    const cancel = document.createElement("button");
+    cancel.className = "btn ghost";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => done(null));
+    actions.appendChild(cancel);
+
+    let primaryBtn: HTMLButtonElement | null = null;
+    for (const opt of options) {
+      const b = document.createElement("button");
+      b.className = "btn" + (opt.primary ? "" : " ghost");
+      b.textContent = opt.label;
+      b.addEventListener("click", () => done(opt.id));
+      actions.appendChild(b);
+      if (opt.primary && !primaryBtn) primaryBtn = b;
+    }
+
+    modal.append(h, p, actions);
+    root.append(backdrop, modal);
+    document.body.appendChild(root);
+    (primaryBtn ?? cancel).focus();
+
+    backdrop.addEventListener("click", () => done(null));
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Escape") done(null);
+      },
+      { once: true },
+    );
+  });
+}
+
 /** Simple confirm dialog. Resolves true on confirm. */
 export function confirmDialog(title: string, message: string, okLabel = "OK"): Promise<boolean> {
   return new Promise((resolve) => {

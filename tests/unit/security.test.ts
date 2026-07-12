@@ -207,6 +207,55 @@ describe("workspace path sanitization", () => {
   });
 });
 
+describe("zip import into workspace", () => {
+  beforeEach(() => {
+    (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage();
+  });
+
+  it("suffixes _1/_2 instead of overwriting existing files (import into current)", () => {
+    const ws = new Workspace();
+    ws.create("Token.sol");
+    ws.write("Token.sol", "original");
+
+    const p1 = ws.importFileUnique("Token.sol", "first");
+    const p2 = ws.importFileUnique("Token.sol", "second");
+
+    expect(p1).toBe("Token_1.sol");
+    expect(p2).toBe("Token_2.sol");
+    // The pre-existing file is never clobbered.
+    expect(ws.read("Token.sol")).toBe("original");
+    expect(ws.read("Token_1.sol")).toBe("first");
+    expect(ws.read("Token_2.sol")).toBe("second");
+  });
+
+  it("preserves nested paths and folders when suffixing", () => {
+    const ws = new Workspace();
+    const first = ws.importFileUnique("contracts/A.sol", "a1");
+    const second = ws.importFileUnique("contracts/A.sol", "a2");
+    expect(first).toBe("contracts/A.sol");
+    expect(second).toBe("contracts/A_1.sol");
+    expect(ws.listFolders()).toContain("contracts");
+  });
+
+  it("creates a new workspace populated with the imported files", () => {
+    const ws = new Workspace();
+    const before = ws.activeWorkspaceId();
+    const { meta, paths } = ws.createWorkspaceFromFiles("MyZip", [
+      { name: "A.sol", content: "a" },
+      { name: "sub/B.sol", content: "b" },
+      { name: "A.sol", content: "dup" },
+    ]);
+
+    expect(meta.id).not.toBe(before);
+    expect(ws.activeWorkspaceId()).toBe(meta.id);
+    expect(paths).toEqual(["A.sol", "sub/B.sol", "A_1.sol"]);
+    expect(ws.list().sort()).toEqual(["A.sol", "A_1.sol", "sub/B.sol"]);
+    expect(ws.read("A.sol")).toBe("a");
+    expect(ws.read("A_1.sol")).toBe("dup");
+    expect(ws.getActive()).toBe("A.sol");
+  });
+});
+
 // ---- CSPRNG randomBytes chunking (QCB-007) ----
 
 describe("randomBytes chunking", () => {

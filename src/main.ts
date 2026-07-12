@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, type EditorDiagnostic } from "./compiler/types";
 import { SidePanel } from "./panels/sidePanel";
 import { Terminal } from "./app/terminal";
 import { MenuBar, MENUS, type MenuDef, type MenuItem } from "./app/menu";
-import { promptText, newWorkspaceDialog, confirmDialog, alertDialog } from "./app/dialogs";
+import { promptText, newWorkspaceDialog, confirmDialog, alertDialog, choiceDialog } from "./app/dialogs";
 import { BootstrapOverlay } from "./app/bootstrap";
 import { brandIcon } from "./app/brand";
 import { Store } from "./app/state";
@@ -436,8 +436,7 @@ function importFromZip(): void {
     }
     try {
       const entries = await readZip(file);
-      let last = "";
-      let imported = 0;
+      const files: { name: string; content: string }[] = [];
       let skipped = 0;
       for (const e of entries) {
         if (!e.name.toLowerCase().endsWith(".sol")) continue;
@@ -446,17 +445,40 @@ function importFromZip(): void {
           terminal.log(`Skipped ${e.name}: exceeds ${MAX_SOURCE_CHARS} characters`, "warning");
           continue;
         }
-        last = workspace.importFile(e.name, e.text);
-        imported++;
+        files.push({ name: e.name, content: e.text });
       }
-      if (imported > 0) {
+      if (files.length === 0) {
+        terminal.log(`No importable .sol files found in ${file.name}`, "warning");
+        return;
+      }
+
+      const choice = await choiceDialog(
+        "Import ZIP",
+        `Import ${files.length} Solidity file(s) from ${file.name}. Where should they go?`,
+        [
+          { id: "new", label: "New Workspace" },
+          { id: "existing", label: "Current Workspace", primary: true },
+        ],
+      );
+      if (!choice) return;
+      const suffix = skipped ? ` (${skipped} skipped)` : "";
+
+      if (choice === "new") {
+        workspace.write(editor.getPath(), editor.getValue());
+        const wsName = file.name.replace(/\.zip$/i, "") || "imported";
+        const { meta } = workspace.createWorkspaceFromFiles(wsName, files);
+        onWorkspaceSwitched();
+        terminal.log(
+          `Imported ${files.length} file(s) from ${file.name} into new workspace "${meta.name}"${suffix}`,
+          "success",
+        );
+      } else {
+        let last = "";
+        for (const f of files) last = workspace.importFileUnique(f.name, f.content);
         openFiles.push(last);
         editor.setDocument(last, workspace.read(last));
         renderTabs();
-        const suffix = skipped ? ` (${skipped} skipped)` : "";
-        terminal.log(`Imported ${imported} file(s) from ${file.name}${suffix}`, "success");
-      } else {
-        terminal.log(`No importable .sol files found in ${file.name}`, "warning");
+        terminal.log(`Imported ${files.length} file(s) from ${file.name}${suffix}`, "success");
       }
     } catch (err) {
       terminal.log("Zip import failed: " + (err instanceof Error ? err.message : String(err)), "error");
@@ -508,7 +530,7 @@ async function compileCurrent(): Promise<void> {
     editor.setDiagnostics(result.diagnostics);
     for (const d of result.diagnostics) terminal.logDiagnostic(d);
     store.set({ lastResult: result });
-    sidePanel.setResult(result);
+    sidePanel.setResult(result, active);
 
     if (result.errorCount > 0) {
       terminal.log(`Compilation failed \u2014 ${result.errorCount} error(s), ${result.warningCount} warning(s).`, "error");

@@ -43,13 +43,26 @@ export class SidePanel {
     this.render();
   }
 
-  setResult(result: CompileResult): void {
+  setResult(result: CompileResult, activePath?: string): void {
+    // Skip redundant re-renders when the compiled artifacts are unchanged (e.g.
+    // the on-load auto-compile landing after a manual compile of identical
+    // sources). Rebuilding would discard in-progress ABI/deploy argument input
+    // and reset the current contract selection.
+    if (this.result && sameArtifacts(this.result, result)) {
+      this.result = result;
+      return;
+    }
     this.result = result;
     const names = result.contracts.map((c) => c.contractName);
     if (!this.selected || !names.includes(this.selected)) {
-      this.selected = names[0] ?? null;
+      // Default to a contract defined in the active file so the ABI/artifacts
+      // reflect what the user is editing (fall back to the first compiled one).
+      const fromActive = activePath
+        ? result.contracts.find((c) => c.sourcePath === activePath)?.contractName
+        : undefined;
+      this.selected = fromActive ?? names[0] ?? null;
     }
-    this.runPanel.setResult(result);
+    this.runPanel.setResult(result, activePath);
     this.render();
   }
 
@@ -392,6 +405,24 @@ export class SidePanel {
     recompute();
     return div;
   }
+}
+
+/** True when two compile results expose the same contracts/artifacts (ABI panel + deploy inputs). */
+function sameArtifacts(a: CompileResult, b: CompileResult): boolean {
+  if (a.contracts.length !== b.contracts.length) return false;
+  for (let i = 0; i < a.contracts.length; i++) {
+    const x = a.contracts[i]!;
+    const y = b.contracts[i]!;
+    if (
+      x.contractName !== y.contractName ||
+      x.sourcePath !== y.sourcePath ||
+      x.bytecode !== y.bytecode ||
+      JSON.stringify(x.abi) !== JSON.stringify(y.abi)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sectionLabel(text: string): HTMLElement {

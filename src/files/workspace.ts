@@ -325,6 +325,19 @@ export class Workspace {
     return path;
   }
 
+  /**
+   * Import a file without overwriting an existing one: on a name collision the
+   * base name gets an `_1`, `_2`, ... suffix (before the extension). Returns the
+   * final path. Used by ZIP import into an existing workspace.
+   */
+  importFileUnique(name: string, content: string): string {
+    const path = this.addFileNoClobber(name, content);
+    this.data.active = path;
+    this.recordRecentFile(path);
+    this.emit();
+    return path;
+  }
+
   rename(oldPath: string, newRaw: string): string {
     if (!(oldPath in this.data.files)) return oldPath;
     const newPath = normalizePath(newRaw, true);
@@ -417,6 +430,30 @@ export class Workspace {
     this.writeWorkspaceData(meta.id, this.seed(template));
     this.switchTo(meta.id);
     return meta;
+  }
+
+  /**
+   * Create a new workspace populated with exactly `files` and switch to it.
+   * Duplicate names within the batch are de-duplicated with `_1`, `_2` suffixes.
+   * Returns the created workspace and the final file paths.
+   */
+  createWorkspaceFromFiles(
+    name: string,
+    files: { name: string; content: string }[],
+  ): { meta: WorkspaceMeta; paths: string[] } {
+    const meta = this.newMeta(uniqueName(name || "workspace", this.index.list));
+    this.index.list.push(meta);
+    this.index.activeId = meta.id;
+    meta.lastOpenedAt = Date.now();
+    this.data = { files: {}, folders: [], active: "" };
+    const paths = files.map((f) => this.addFileNoClobber(f.name, f.content));
+    this.data.active = paths[0] ?? "";
+    this.recordRecentWorkspace(meta);
+    this.recordRecentFile(this.data.active);
+    this.persistIndex();
+    this.persistActive();
+    this.emit();
+    return { meta, paths };
   }
 
   openWorkspace(id: string): void {
@@ -546,6 +583,17 @@ export class Workspace {
   private ensureParents(path: string): void {
     const d = dirname(path);
     if (d) this.addFolderWithParents(d);
+  }
+
+  /** Write a file into the active workspace without overwriting; suffixes `_N` on collision. */
+  private addFileNoClobber(name: string, content: string): string {
+    const base = normalizePath(name, false);
+    let p = base;
+    let n = 1;
+    while (p in this.data.files) p = addSuffix(base, `_${n++}`);
+    this.data.files[p] = content;
+    this.ensureParents(p);
+    return p;
   }
 
   private addFolderWithParents(folder: string): void {
