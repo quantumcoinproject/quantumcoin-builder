@@ -1,4 +1,6 @@
 // Windows-style menu bar (Mini §4.2). Emits action ids; main wires behavior.
+// Supports nested submenus (item.children) and dynamic rebuilding via a provider
+// so lists like "Open Workspace" and "Recent" stay current.
 
 export interface MenuItem {
   id: string;
@@ -6,6 +8,7 @@ export interface MenuItem {
   shortcut?: string;
   separatorAfter?: boolean;
   disabled?: boolean;
+  children?: MenuItem[];
 }
 export interface MenuDef {
   label: string;
@@ -17,13 +20,16 @@ export const MENUS: MenuDef[] = [
     label: "File",
     items: [
       { id: "file.new", label: "New File", shortcut: "Ctrl+N" },
+      { id: "file.newFolder", label: "New Folder\u2026" },
       { id: "file.open", label: "Open File\u2026", shortcut: "Ctrl+O" },
       { id: "file.importZip", label: "Import from Zip\u2026" },
       { id: "file.download", label: "Download Project (.zip)", separatorAfter: true },
+      { id: "file.newWorkspace", label: "New Workspace\u2026" },
+      { id: "file.openWorkspace", label: "Open Workspace", children: [] },
+      { id: "file.recent", label: "Recent", children: [], separatorAfter: true },
       { id: "file.save", label: "Save", shortcut: "Ctrl+S" },
       { id: "file.rename", label: "Rename\u2026" },
-      { id: "file.close", label: "Close File", separatorAfter: true },
-      { id: "file.exit", label: "Exit", disabled: true },
+      { id: "file.close", label: "Close File" },
     ],
   },
   {
@@ -42,6 +48,7 @@ export const MENUS: MenuDef[] = [
       { id: "view.explorer", label: "File Explorer" },
       { id: "view.compiler", label: "Compiler Panel" },
       { id: "view.abi", label: "ABI Panel" },
+      { id: "view.run", label: "Deploy/Execute Panel" },
       { id: "view.terminal", label: "Terminal" },
     ],
   },
@@ -60,7 +67,8 @@ export const MENUS: MenuDef[] = [
     label: "Help",
     items: [
       { id: "help.docs", label: "Documentation" },
-      { id: "help.shortcuts", label: "Keyboard Shortcuts" },
+      { id: "help.explorer", label: "QuantumScan Block Explorer" },
+      { id: "help.shortcuts", label: "Keyboard Shortcuts", separatorAfter: true },
       { id: "help.about", label: "About Platform Builder" },
     ],
   },
@@ -69,17 +77,31 @@ export const MENUS: MenuDef[] = [
 export class MenuBar {
   readonly el: HTMLElement;
   private onAction: (id: string) => void;
+  private provider: () => MenuDef[];
 
-  constructor(onAction: (id: string) => void) {
+  constructor(onAction: (id: string) => void, provider?: () => MenuDef[]) {
     this.onAction = onAction;
+    this.provider = provider ?? (() => MENUS);
     this.el = document.createElement("div");
     this.el.className = "menubar";
     this.build();
     document.addEventListener("click", () => this.closeAll());
   }
 
+  /** Rebuild from the current provider (dynamic lists refresh here). */
+  refresh(): void {
+    this.build();
+  }
+
+  /** Replace the menu definitions with a static list. */
+  setMenus(defs: MenuDef[]): void {
+    this.provider = () => defs;
+    this.build();
+  }
+
   private build(): void {
-    for (const menu of MENUS) {
+    this.el.innerHTML = "";
+    for (const menu of this.provider()) {
       const wrap = document.createElement("div");
       wrap.className = "menu";
       const label = document.createElement("div");
@@ -91,7 +113,6 @@ export class MenuBar {
         this.closeAll();
         if (!open) wrap.classList.add("open");
       });
-      // When a menu is already open, hovering another label switches to it.
       label.addEventListener("mouseenter", () => {
         if (wrap.classList.contains("open")) return;
         if (!this.el.querySelector(".menu.open")) return;
@@ -100,12 +121,39 @@ export class MenuBar {
       });
       const dropdown = document.createElement("div");
       dropdown.className = "dropdown";
-      for (const item of menu.items) {
-        const mi = document.createElement("div");
-        mi.className = "mi" + (item.disabled ? " disabled" : "");
-        const name = document.createElement("span");
-        name.textContent = item.label;
-        mi.appendChild(name);
+      this.renderItems(dropdown, menu.items);
+      wrap.append(label, dropdown);
+      this.el.appendChild(wrap);
+    }
+  }
+
+  private renderItems(container: HTMLElement, items: MenuItem[]): void {
+    for (const item of items) {
+      const hasChildren = Array.isArray(item.children);
+      const mi = document.createElement("div");
+      mi.className = "mi" + (item.disabled ? " disabled" : "") + (hasChildren ? " has-sub" : "");
+      const name = document.createElement("span");
+      name.textContent = item.label;
+      mi.appendChild(name);
+
+      if (hasChildren) {
+        const arrow = document.createElement("span");
+        arrow.className = "sc submenu-arrow";
+        arrow.textContent = "\u25B8";
+        mi.appendChild(arrow);
+        const sub = document.createElement("div");
+        sub.className = "dropdown sub";
+        const kids = item.children!;
+        if (kids.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "mi disabled";
+          empty.textContent = "(none)";
+          sub.appendChild(empty);
+        } else {
+          this.renderItems(sub, kids);
+        }
+        mi.appendChild(sub);
+      } else {
         if (item.shortcut) {
           const sc = document.createElement("span");
           sc.className = "sc";
@@ -119,15 +167,14 @@ export class MenuBar {
             this.onAction(item.id);
           });
         }
-        dropdown.appendChild(mi);
-        if (item.separatorAfter) {
-          const sep = document.createElement("div");
-          sep.className = "sep";
-          dropdown.appendChild(sep);
-        }
       }
-      wrap.append(label, dropdown);
-      this.el.appendChild(wrap);
+
+      container.appendChild(mi);
+      if (item.separatorAfter) {
+        const sep = document.createElement("div");
+        sep.className = "sep";
+        container.appendChild(sep);
+      }
     }
   }
 

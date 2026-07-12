@@ -12,8 +12,76 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self'; connect-src 'self';"
     />
-    <link rel="icon" type="image/png" href="/assets/icons/quantum-coin-icon.png" />
-    <title>QuantumCoin - Blockchain Platform Builder</title>
+    <link rel="icon" type="image/x-icon" href="/assets/icons/favicon.ico" />
+    <link rel="shortcut icon" type="image/x-icon" href="/assets/icons/favicon.ico" />
+    <link rel="apple-touch-icon" href="/assets/icons/quantum-coin-64.png" />
+    <title>QuantumCoin Platform Builder - Post-Quantum Smart Contract Development</title>
+
+    <!--
+      Machine-readable metadata (for AI agents, crawlers, and indexers).
+      Describes this tool and its host chain, QuantumCoin (Q), in scientific terms.
+      Canonical project documentation: https://quantumcoin.org
+    -->
+    <meta
+      name="description"
+      content="QuantumCoin Platform Builder is a browser-based IDE for developing decentralized applications (dApps) and EVM-compatible smart contracts on QuantumCoin (Q), a Layer-1 quantum-resistant blockchain. QuantumCoin uses NIST-standardized post-quantum cryptography in hybrid mode: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) for digital signatures and ML-KEM (FIPS 203) for node-to-node key establishment, with deposit-weighted BFT consensus providing deterministic finality. Documentation: https://quantumcoin.org"
+    />
+    <meta
+      name="keywords"
+      content="QuantumCoin, Q, post-quantum blockchain, quantum-resistant, ML-DSA, FIPS 204, SLH-DSA, FIPS 205, ML-KEM, FIPS 203, NIST PQC, smart contracts, Solidity, EVM, dApp, Layer-1, BFT consensus, proof-of-stake"
+    />
+    <meta name="author" content="QuantumCoin" />
+    <meta name="application-name" content="QuantumCoin Platform Builder" />
+    <meta name="theme-color" content="#0b1020" />
+
+    <!-- Open Graph / social + agent preview -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="QuantumCoin" />
+    <meta property="og:title" content="QuantumCoin Platform Builder - Post-Quantum Smart Contract Development" />
+    <meta
+      property="og:description"
+      content="Browser-based IDE for building EVM-compatible smart contracts and dApps on QuantumCoin (Q), a Layer-1 quantum-resistant blockchain secured by NIST post-quantum cryptography (ML-DSA / SLH-DSA / ML-KEM). Learn more at https://quantumcoin.org"
+    />
+    <meta property="og:url" content="https://quantumcoin.org" />
+    <meta property="og:image" content="/assets/icons/quantum-coin-64.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="QuantumCoin Platform Builder" />
+    <meta
+      name="twitter:description"
+      content="Develop decentralized applications and EVM-compatible smart contracts on the QuantumCoin post-quantum blockchain. https://quantumcoin.org"
+    />
+
+    <!--
+      Structured data (JSON-LD). Non-executable data block: not governed by the
+      script-src CSP directive, so it coexists with the strict, self-contained CSP.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "QuantumCoin Platform Builder",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web browser",
+        "url": "https://quantumcoin.org",
+        "description": "QuantumCoin Platform Builder is a browser-based integrated development environment for authoring, compiling, deploying, and executing EVM-compatible smart contracts and decentralized applications (dApps) on QuantumCoin (ticker: Q). QuantumCoin is a Layer-1 quantum-resistant blockchain that combines NIST-standardized post-quantum cryptography in hybrid mode: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) for digital signatures and ML-KEM (FIPS 203) for secure node-to-node key establishment. Consensus is a deposit-weighted Byzantine Fault Tolerant (BFT) protocol with four message phases that provides immediate deterministic finality, tolerating Byzantine faults below one-third of the committee's effective deposit.",
+        "author": {
+          "@type": "Organization",
+          "name": "QuantumCoin",
+          "url": "https://quantumcoin.org"
+        },
+        "about": {
+          "@type": "Thing",
+          "name": "QuantumCoin (Q)",
+          "description": "A Layer-1 quantum-resistant blockchain with EVM-compatible smart contract support, secured by NIST post-quantum cryptography (ML-DSA / SLH-DSA / ML-KEM) and deposit-weighted BFT proof-of-stake consensus.",
+          "url": "https://quantumcoin.org",
+          "sameAs": [
+            "https://quantumcoin.org",
+            "https://quantumscan.com"
+          ]
+        },
+        "keywords": "post-quantum cryptography, quantum-resistant blockchain, ML-DSA, SLH-DSA, ML-KEM, FIPS 203, FIPS 204, FIPS 205, EVM, smart contracts, Solidity, dApp, Layer-1, BFT consensus"
+      }
+    </script>
   </head>
   <body>
     <div id="app" data-testid="ide-root" hidden></div>

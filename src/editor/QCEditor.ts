@@ -4,6 +4,7 @@ import { Gutter, type GutterMark } from "./Gutter";
 import { DiagnosticLayer } from "./DiagnosticLayer";
 import { MarkerLayer } from "./MarkerLayer";
 import type { EditorDiagnostic } from "../compiler/types";
+import { PASTE_WARN_CHARS, PASTE_WARN_LINES, countAddresses } from "../app/limits";
 
 export interface PragmaStatus {
   ok: boolean;
@@ -15,6 +16,8 @@ export interface QCEditorOptions {
   tabSize?: number;
   onChange?: (path: string, value: string) => void;
   onPragmaChange?: (status: PragmaStatus) => void;
+  /** Non-blocking notice when a large or address-bearing blob is pasted. */
+  onPasteWarning?: (message: string) => void;
 }
 
 const PRAGMA_RE = /pragma\s+solidity\s+([^;]+);/;
@@ -80,6 +83,9 @@ export class QCEditor {
   private wrap!: HTMLDivElement;
   private textarea!: HTMLTextAreaElement;
   private banner!: HTMLDivElement;
+  private bannerText!: HTMLSpanElement;
+  // Message the user explicitly dismissed; kept hidden until the pragma problem changes.
+  private dismissedMessage: string | null = null;
 
   private highlight = new HighlightLayer();
   private gutter = new Gutter();
@@ -102,6 +108,17 @@ export class QCEditor {
     // Pragma guard banner (Mini §5.4)
     this.banner = document.createElement("div");
     this.banner.className = "pragma-banner";
+    this.banner.setAttribute("role", "alert");
+    this.bannerText = document.createElement("span");
+    this.bannerText.className = "pragma-banner-text";
+    const bannerClose = document.createElement("button");
+    bannerClose.type = "button";
+    bannerClose.className = "pragma-banner-close";
+    bannerClose.textContent = "\u2715";
+    bannerClose.setAttribute("aria-label", "Dismiss warning");
+    bannerClose.title = "Dismiss";
+    bannerClose.addEventListener("click", () => this.dismissBanner());
+    this.banner.append(this.bannerText, bannerClose);
     this.root.appendChild(this.banner);
 
     const editor = document.createElement("div");
@@ -148,9 +165,29 @@ export class QCEditor {
     this.textarea.addEventListener("keyup", () => this.updateActiveLine());
     this.textarea.addEventListener("click", () => this.updateActiveLine());
     this.textarea.addEventListener("keydown", (e) => this.onKeyDown(e));
+    this.textarea.addEventListener("paste", (e) => this.onPaste(e));
 
     const ro = new ResizeObserver(() => this.refreshLayers());
     ro.observe(this.wrap);
+  }
+
+  // Non-blocking safety notice for large / address-bearing pastes. Pasting is
+  // NOT prevented; the goal is to make the user aware that they may be inserting
+  // attacker-supplied content (e.g. a hidden address swap or a huge blob).
+  private onPaste(e: ClipboardEvent): void {
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (!text) return;
+    const lines = text.split("\n").length;
+    const addrs = countAddresses(text);
+    const reasons: string[] = [];
+    if (text.length > PASTE_WARN_CHARS) reasons.push(`${text.length.toLocaleString()} characters`);
+    if (lines > PASTE_WARN_LINES) reasons.push(`${lines.toLocaleString()} lines`);
+    if (addrs > 0) reasons.push(`${addrs} address${addrs === 1 ? "" : "es"}`);
+    if (reasons.length === 0) return;
+    this.opts.onPasteWarning?.(
+      `Pasted content contains ${reasons.join(", ")}. Verify it is from a trusted source \u2014 ` +
+        "malicious snippets can hide altered addresses or injected code.",
+    );
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -281,13 +318,23 @@ export class QCEditor {
   private checkPragma(): void {
     const status = this.getPragmaStatus();
     if (status.ok) {
+      this.dismissedMessage = null;
       this.banner.classList.remove("show");
-      this.banner.textContent = "";
+      this.bannerText.textContent = "";
+    } else if (status.message === this.dismissedMessage) {
+      // User dismissed this exact warning; keep it hidden until the problem changes.
+      this.banner.classList.remove("show");
     } else {
+      this.dismissedMessage = null;
       this.banner.classList.add("show");
-      this.banner.innerHTML = `\u26A0 ${escapeHtml(status.message)}. Compile is blocked until the source targets <span class="mono">Solidity 0.7.6 or below</span>`;
+      this.bannerText.innerHTML = `\u26A0 ${escapeHtml(status.message)}. Compile is blocked until the source targets <span class="mono">Solidity 0.7.6 or below</span>`;
     }
     this.opts.onPragmaChange?.(status);
+  }
+
+  private dismissBanner(): void {
+    this.dismissedMessage = this.getPragmaStatus().message;
+    this.banner.classList.remove("show");
   }
 
   // ---- Rendering ----

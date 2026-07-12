@@ -20,6 +20,33 @@ const DEFAULT_RPC = "https://public.rpc.quantumcoinapi.com"; // used by Initiali
 let qc: AnyModule | null = null;
 let ready = false;
 let lastError: string | null = null;
+let settled = false;
+const settledListeners = new Set<() => void>();
+
+function notifySettled(): void {
+  settled = true;
+  for (const cb of settledListeners) {
+    try {
+      cb();
+    } catch {
+      /* a listener error must not break others */
+    }
+  }
+  settledListeners.clear();
+}
+
+/**
+ * Run `cb` once `initSdk` has finished (success OR failure). Fires immediately
+ * if the SDK has already settled. Lets UI built before bootstrap completes
+ * (e.g. the Deploy/Execute panel) re-render against the final SDK state.
+ */
+export function onSdkSettled(cb: () => void): void {
+  if (settled) {
+    queueMicrotask(cb);
+    return;
+  }
+  settledListeners.add(cb);
+}
 
 export function isSdkReady(): boolean {
   return ready;
@@ -49,10 +76,28 @@ export async function initSdk(): Promise<void> {
   // `seed-words@1.0.x` (a transitive dep used by the SDK's Initialize()) relies on
   // sloppy-mode implicit globals — `for (i in ...)` / `i = 0` / `j = 0` with no
   // declaration — which throw `ReferenceError` under ESM strict mode. Pre-declaring
-  // the bindings on the global object lets those assignments resolve so the SDK's
-  // WASM runtime can finish initializing (enabling SDK calldata encoding).
-  if (!("i" in globalThis)) (globalThis as any).i = 0;
-  if (!("j" in globalThis)) (globalThis as any).j = 0;
+  // the bindings lets those assignments resolve so the SDK's WASM runtime can finish
+  // initializing (enabling SDK calldata encoding). We only add bindings that don't
+  // already exist and remove exactly those we added once init settles, keeping the
+  // global-namespace pollution window as small as possible (QCB-002). This is a
+  // scoped workaround for an upstream dependency bug; remove when `seed-words` ships
+  // a strict-mode-clean release.
+  const addedGlobals: string[] = [];
+  for (const key of ["i", "j"]) {
+    if (!(key in globalThis)) {
+      (globalThis as any)[key] = 0;
+      addedGlobals.push(key);
+    }
+  }
+  const cleanupGlobals = (): void => {
+    for (const key of addedGlobals) {
+      try {
+        delete (globalThis as any)[key];
+      } catch {
+        /* non-configurable binding: best-effort cleanup only */
+      }
+    }
+  };
 
   try {
     const modNs: AnyModule = await import("quantumcoin");
@@ -67,6 +112,8 @@ export async function initSdk(): Promise<void> {
   } catch (err) {
     ready = false;
     lastError = err instanceof Error ? err.message : String(err);
+    cleanupGlobals();
+    notifySettled();
     throw err;
   }
 
@@ -83,6 +130,9 @@ export async function initSdk(): Promise<void> {
     }
   } catch {
     runtimeReady = false;
+  } finally {
+    cleanupGlobals();
+    notifySettled();
   }
 }
 
@@ -110,6 +160,18 @@ export function getAddress(addr: string): string {
   return addr;
 }
 
+/** Decimal coin string -> integer wei string, via the SDK (ethers v6 parseUnits). */
+export function parseUnits(value: string, decimals = 18): string {
+  if (!qc || !ready) throw new Error("QuantumCoin SDK not initialized");
+  return qc.parseUnits(value, decimals).toString();
+}
+
+/** Integer wei string -> decimal coin string, via the SDK (ethers v6 formatUnits). */
+export function formatUnits(value: string, decimals = 18): string {
+  if (!qc || !ready) throw new Error("QuantumCoin SDK not initialized");
+  return qc.formatUnits(value, decimals);
+}
+
 /** keccak256(utf8(text)) via the SDK (pure-JS; no WASM) — used for selectors/topics. */
 export function hashId(text: string): string {
   if (qc && typeof qc.id === "function") return qc.id(text);
@@ -126,4 +188,21 @@ export function encodeFunctionData(
   args: unknown[],
 ): string {
   return iface.encodeFunctionData(name, args);
+}
+
+/** Encode constructor arguments for a deploy (ethers v6 `encodeDeploy`). */
+export function encodeDeploy(iface: AnyModule, args: unknown[]): string {
+  if (typeof iface?.encodeDeploy !== "function") {
+    throw new Error("SDK Interface does not support encodeDeploy");
+  }
+  return iface.encodeDeploy(args);
+}
+
+/** Decode the return data of an `eth_call` for a read function. */
+export function decodeFunctionResult(
+  iface: AnyModule,
+  name: string,
+  data: string,
+): unknown {
+  return iface.decodeFunctionResult(name, data);
 }

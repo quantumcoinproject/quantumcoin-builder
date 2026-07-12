@@ -4,6 +4,8 @@
  * (no jszip / file-saver). Sufficient for small text artifacts.
  */
 
+import { MAX_ZIP_ENTRIES, MAX_ZIP_ENTRY_BYTES, MAX_ZIP_TOTAL_BYTES } from "../app/limits";
+
 export interface ZipEntry {
   name: string;
   data: Uint8Array;
@@ -117,22 +119,64 @@ export interface ReadEntry {
 
 const dec = new TextDecoder();
 
-async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  // Browser-native raw DEFLATE — no third-party archive libraries.
+/**
+ * Raw DEFLATE decompression with a hard output cap. Reads the stream chunk by
+ * chunk and aborts as soon as the decompressed size would exceed `maxBytes`, so
+ * a high-ratio "zip bomb" never fully materializes in memory.
+ */
+async function inflateRawCapped(data: Uint8Array, maxBytes: number): Promise<Uint8Array> {
   const ds = new DecompressionStream("deflate-raw");
   const stream = new Blob([data as unknown as BlobPart]).stream().pipeThrough(ds);
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.length;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("ZIP entry too large when decompressed");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
 }
 
-/** Read a ZIP archive (STORE + DEFLATE) — used for "Import from Zip" (Mini §4.1). */
+/** Read a ZIP archive (STORE + DEFLATE) — used for "Import from Zip" (Mini §4.1).
+ *
+ * Hardened against malformed archives and decompression bombs: all offsets are
+ * bounds-checked against the buffer, the entry count is clamped, and per-entry
+ * and total uncompressed sizes are capped. */
 export async function readZip(blob: Blob): Promise<ReadEntry[]> {
   const buf = new Uint8Array(await blob.arrayBuffer());
-  const dv = new DataView(buf.buffer);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const len = buf.length;
+
+  // Bounds-safe little-endian readers.
+  const u16 = (o: number): number => {
+    if (o < 0 || o + 2 > len) throw new Error("Corrupt ZIP: read past end of file");
+    return dv.getUint16(o, true);
+  };
+  const u32 = (o: number): number => {
+    if (o < 0 || o + 4 > len) throw new Error("Corrupt ZIP: read past end of file");
+    return dv.getUint32(o, true);
+  };
 
   // Locate End Of Central Directory record.
   let eocd = -1;
-  for (let i = buf.length - 22; i >= 0; i--) {
+  for (let i = len - 22; i >= 0; i--) {
     if (dv.getUint32(i, true) === 0x06054b50) {
       eocd = i;
       break;
@@ -140,31 +184,50 @@ export async function readZip(blob: Blob): Promise<ReadEntry[]> {
   }
   if (eocd < 0) throw new Error("Not a valid ZIP file");
 
-  const count = dv.getUint16(eocd + 10, true);
-  let ptr = dv.getUint32(eocd + 16, true);
+  const rawCount = u16(eocd + 10);
+  const count = Math.min(rawCount, MAX_ZIP_ENTRIES);
+  let ptr = u32(eocd + 16);
   const entries: ReadEntry[] = [];
+  let totalBytes = 0;
 
   for (let n = 0; n < count; n++) {
-    if (dv.getUint32(ptr, true) !== 0x02014b50) break;
-    const method = dv.getUint16(ptr + 10, true);
-    const compSize = dv.getUint32(ptr + 20, true);
-    const nameLen = dv.getUint16(ptr + 28, true);
-    const extraLen = dv.getUint16(ptr + 30, true);
-    const commentLen = dv.getUint16(ptr + 32, true);
-    const localOffset = dv.getUint32(ptr + 42, true);
+    if (ptr < 0 || ptr + 46 > len) break;
+    if (u32(ptr) !== 0x02014b50) break;
+    const method = u16(ptr + 10);
+    const compSize = u32(ptr + 20);
+    const nameLen = u16(ptr + 28);
+    const extraLen = u16(ptr + 30);
+    const commentLen = u16(ptr + 32);
+    const localOffset = u32(ptr + 42);
+    if (ptr + 46 + nameLen > len) break;
     const name = dec.decode(buf.subarray(ptr + 46, ptr + 46 + nameLen));
 
+    // Reject implausibly large compressed regions before touching the data.
+    if (compSize > MAX_ZIP_ENTRY_BYTES) {
+      throw new Error(`ZIP entry "${name}" exceeds the ${MAX_ZIP_ENTRY_BYTES}-byte limit`);
+    }
+
     // Local header to find the actual data start.
-    const lNameLen = dv.getUint16(localOffset + 26, true);
-    const lExtraLen = dv.getUint16(localOffset + 28, true);
+    const lNameLen = u16(localOffset + 26);
+    const lExtraLen = u16(localOffset + 28);
     const dataStart = localOffset + 30 + lNameLen + lExtraLen;
+    if (dataStart < 0 || dataStart + compSize > len) throw new Error("Corrupt ZIP: entry data out of range");
     const raw = buf.subarray(dataStart, dataStart + compSize);
 
     if (!name.endsWith("/")) {
       let bytes: Uint8Array;
-      if (method === 0) bytes = raw;
-      else if (method === 8) bytes = await inflateRaw(raw);
-      else throw new Error(`Unsupported ZIP compression method ${method} for ${name}`);
+      if (method === 0) {
+        if (raw.length > MAX_ZIP_ENTRY_BYTES) throw new Error(`ZIP entry "${name}" too large`);
+        bytes = raw;
+      } else if (method === 8) {
+        bytes = await inflateRawCapped(raw, MAX_ZIP_ENTRY_BYTES);
+      } else {
+        throw new Error(`Unsupported ZIP compression method ${method} for ${name}`);
+      }
+      totalBytes += bytes.length;
+      if (totalBytes > MAX_ZIP_TOTAL_BYTES) {
+        throw new Error(`ZIP total uncompressed size exceeds the ${MAX_ZIP_TOTAL_BYTES}-byte limit`);
+      }
       entries.push({ name, text: dec.decode(bytes) });
     }
 

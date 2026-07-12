@@ -19,10 +19,12 @@ library Lib {
 }
 `;
 
+// Main lives in contracts/ and imports the library from a sibling lib/ folder
+// via a nested relative path, exercising folder-aware import resolution.
 const MAIN_SOL = `// SPDX-License-Identifier: MIT
 pragma solidity 0.7.6;
 
-import "./Lib.sol";
+import "../lib/Lib.sol";
 
 contract Main {
     function run(uint256 x) public pure returns (uint256) {
@@ -31,20 +33,32 @@ contract Main {
 }
 `;
 
-test("resolves a relative in-project import during compilation", async ({ page, baseURL }) => {
+test("resolves a nested relative in-project import during compilation", async ({ page, baseURL }) => {
   const probe = await page.request.get(`${baseURL}/assets/compilers/soljson-v32b.8.12.js`);
   const contentType = probe.headers()["content-type"] ?? "";
   const vendored = probe.ok() && /javascript|ecmascript/i.test(contentType);
   test.skip(!vendored, "soljson compiler not vendored — run `npm run vendor:compiler`");
 
-  // Seed a two-file workspace where Main.sol imports ./Lib.sol.
+  // Seed a workspace with nested folders where contracts/Main.sol imports
+  // ../lib/Lib.sol (resolving to the lib/Lib.sol source-unit key).
   await page.addInitScript(
     ([lib, main]) => {
+      const wsId = "ws_test";
       localStorage.setItem(
-        "qcpbm.workspace.v1",
-        JSON.stringify({ files: { "Lib.sol": lib, "Main.sol": main }, active: "Main.sol" }),
+        "qcpbm.workspaces.v1",
+        JSON.stringify({
+          activeId: wsId,
+          list: [{ id: wsId, name: "Test", createdAt: 0, lastOpenedAt: 0 }],
+        }),
       );
-      localStorage.setItem("qcpbm.workspace.active", "Main.sol");
+      localStorage.setItem(
+        "qcpbm.ws." + wsId,
+        JSON.stringify({
+          files: { "lib/Lib.sol": lib, "contracts/Main.sol": main },
+          folders: ["lib", "contracts"],
+          active: "contracts/Main.sol",
+        }),
+      );
     },
     [LIB_SOL, MAIN_SOL],
   );

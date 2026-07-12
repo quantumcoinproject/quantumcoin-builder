@@ -1,20 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { CompileResult, CompiledContract } from "../compiler/types";
-import { buildCatalog, encodeCall, type AbiCatalog } from "../abi/abi";
-import { isSdkReady, isAddress } from "../abi/sdk";
+import { buildCatalog, encodeCallValues, type AbiCatalog } from "../abi/abi";
+import { createArgControl, createModeToggle, getArgMode, type ArgControl } from "../abi/argControl";
+import { isSdkReady } from "../abi/sdk";
 import {
   copyToClipboard,
   downloadAbiJson,
   downloadArtifactsZip,
   downloadHex,
 } from "../export/download";
+import { RunPanel } from "../dapp/runPanel";
 
 export interface SidePanelHooks {
   onCompile: () => void;
   log: (msg: string, kind?: "info" | "success" | "warning" | "error") => void;
 }
 
-type Tab = "compiler" | "abi";
+type Tab = "compiler" | "abi" | "run";
 
 export class SidePanel {
   readonly el: HTMLElement;
@@ -25,6 +27,7 @@ export class SidePanel {
   private pragmaOk = true;
   private body!: HTMLDivElement;
   private tabsEl!: HTMLDivElement;
+  private runPanel: RunPanel;
 
   constructor(hooks: SidePanelHooks) {
     this.hooks = hooks;
@@ -35,6 +38,7 @@ export class SidePanel {
     this.body = document.createElement("div");
     this.body.className = "pbody";
     this.el.append(this.tabsEl, this.body);
+    this.runPanel = new RunPanel({ log: hooks.log });
     this.renderTabs();
     this.render();
   }
@@ -45,7 +49,16 @@ export class SidePanel {
     if (!this.selected || !names.includes(this.selected)) {
       this.selected = names[0] ?? null;
     }
+    this.runPanel.setResult(result);
     this.render();
+  }
+
+  /** Reset deploy/execute session state (deployed instances, compiled result). */
+  resetRun(): void {
+    this.result = null;
+    this.selected = null;
+    this.runPanel.reset();
+    if (this.tab !== "run") this.render();
   }
 
   setPragmaOk(ok: boolean): void {
@@ -66,10 +79,11 @@ export class SidePanel {
 
   private renderTabs(): void {
     this.tabsEl.innerHTML = "";
-    (["compiler", "abi"] as Tab[]).forEach((t) => {
+    const labels: Record<Tab, string> = { compiler: "Compiler", abi: "ABI", run: "Deploy/Execute" };
+    (["compiler", "abi", "run"] as Tab[]).forEach((t) => {
       const b = document.createElement("button");
       b.className = "ptab" + (this.tab === t ? " active" : "");
-      b.textContent = t === "compiler" ? "Compiler" : "ABI";
+      b.textContent = labels[t];
       b.addEventListener("click", () => this.showTab(t));
       this.tabsEl.appendChild(b);
     });
@@ -78,7 +92,8 @@ export class SidePanel {
   private render(): void {
     this.body.innerHTML = "";
     if (this.tab === "compiler") this.renderCompiler();
-    else this.renderAbi();
+    else if (this.tab === "abi") this.renderAbi();
+    else this.body.appendChild(this.runPanel.el);
   }
 
   private contractSelect(): HTMLElement {
@@ -238,6 +253,15 @@ export class SidePanel {
 
     f.appendChild(this.contractSelect());
 
+    // Simple/Detailed argument-input mode (shared with the Deploy/Execute tab).
+    const modeBar = document.createElement("div");
+    modeBar.className = "mode-bar";
+    const modeLabel = document.createElement("span");
+    modeLabel.className = "field-label";
+    modeLabel.textContent = "Inputs";
+    modeBar.append(modeLabel, createModeToggle(() => this.render()));
+    f.appendChild(modeBar);
+
     const c = this.currentContract();
     if (!c) {
       const empty = document.createElement("div");
@@ -267,9 +291,9 @@ export class SidePanel {
     for (const fn of catalog.read) {
       const div = document.createElement("div");
       div.className = "fn";
-      const ret = fn.outputs.length ? " \u2192 " + fn.outputs.map((o) => o.type).join(", ") : "";
-      div.innerHTML = `<div class="sig">${escape(fn.name)}(${fn.inputs.map((i) => `${i.type} ${i.name}`).join(", ")})${ret}</div>` +
-        `<div class="meta">selector: ${fn.selector || "n/a"}</div>`;
+      const ret = fn.outputs.length ? " \u2192 " + fn.outputs.map((o) => escape(o.type)).join(", ") : "";
+      div.innerHTML = `<div class="sig">${escape(fn.name)}(${sigParams(fn.inputs)})${ret}</div>` +
+        `<div class="meta">selector: ${escape(fn.selector || "n/a")}</div>`;
       f.appendChild(div);
     }
 
@@ -284,7 +308,7 @@ export class SidePanel {
     for (const ev of catalog.events) {
       const div = document.createElement("div");
       div.className = "fn";
-      div.innerHTML = `<div class="sig">${escape(ev.signature)}</div><div class="meta">topic0: ${ev.topic0 || "n/a"}</div>`;
+      div.innerHTML = `<div class="sig">${escape(ev.signature)}</div><div class="meta">topic0: ${escape(ev.topic0 || "n/a")}</div>`;
       f.appendChild(div);
     }
 
@@ -301,66 +325,62 @@ export class SidePanel {
   private writeFn(catalog: AbiCatalog, fn: AbiCatalog["write"][number]): HTMLElement {
     const div = document.createElement("div");
     div.className = "fn";
-    div.innerHTML = `<div class="sig">${escape(fn.name)}(${fn.inputs.map((i) => `${i.type} ${i.name}`).join(", ")})</div>`;
+    div.innerHTML = `<div class="sig">${escape(fn.name)}(${sigParams(fn.inputs)})</div>`;
 
-    const inputs: HTMLInputElement[] = [];
-    for (const p of fn.inputs) {
-      const lab = document.createElement("div");
-      lab.className = "meta";
-      lab.textContent = `${p.name}: ${p.type}`;
-      const input = document.createElement("input");
-      input.className = "arg-input";
-      input.placeholder = p.type;
-      input.dataset.type = p.type;
-      div.append(lab, input);
-      inputs.push(input);
-    }
+    const calldata = document.createElement("div");
+    calldata.className = "meta";
+
+    /** Collect values; `mark=false` keeps the live preview from flagging untouched fields. */
+    const collect = (mark: boolean): { values?: unknown[]; error?: string } => {
+      const values: unknown[] = [];
+      let error: string | undefined;
+      for (const c of controls) {
+        const r = c.read(mark);
+        if (!r.ok) error ??= r.error ?? "invalid argument";
+        else values.push(r.value);
+      }
+      return error != null ? { error } : { values };
+    };
+
+    const recompute = (): void => {
+      const r = collect(false);
+      if (r.error != null) {
+        calldata.classList.remove("errc");
+        calldata.textContent = "calldata: (enter valid arguments)";
+        return;
+      }
+      try {
+        const data = encodeCallValues(catalog, fn.name, r.values!);
+        calldata.classList.remove("errc");
+        calldata.innerHTML = `calldata: ${escape(data)}`;
+      } catch {
+        calldata.classList.add("errc");
+        calldata.textContent = "calldata: (cannot encode \u2014 check arguments)";
+      }
+    };
+
+    const controls: ArgControl[] = fn.inputs.map((p) =>
+      createArgControl(p, { mode: getArgMode(), onChange: recompute }),
+    );
+    for (const c of controls) div.appendChild(c.el);
 
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = `selector: ${fn.selector || "n/a"}`;
-    div.appendChild(meta);
-
-    const calldata = document.createElement("div");
-    calldata.className = "meta";
-    div.appendChild(calldata);
-
-    const recompute = () => {
-      // validate address args (32-byte) per §7.1
-      let valid = true;
-      const args = inputs.map((inp) => {
-        const type = inp.dataset.type || "";
-        if (type === "address") {
-          const ok = inp.value === "" || isAddress(inp.value);
-          inp.classList.toggle("invalid", !ok);
-          if (!ok) valid = false;
-        }
-        return { type, value: inp.value };
-      });
-      if (!valid) {
-        calldata.textContent = "calldata: (fix invalid 32-byte address)";
-        calldata.classList.add("errc");
-        return;
-      }
-      calldata.classList.remove("errc");
-      try {
-        const data = encodeCall(catalog, fn.name, args);
-        calldata.innerHTML = `calldata: ${escape(data)}`;
-      } catch {
-        calldata.textContent = "calldata: (enter all arguments)";
-      }
-    };
-
-    inputs.forEach((inp) => inp.addEventListener("input", recompute));
+    div.append(meta, calldata);
 
     const copyBtn = document.createElement("button");
     copyBtn.className = "btn ghost";
     copyBtn.style.marginTop = "6px";
     copyBtn.textContent = "Copy calldata";
     copyBtn.addEventListener("click", () => {
-      const args = inputs.map((inp) => ({ type: inp.dataset.type || "", value: inp.value }));
+      const r = collect(true);
+      if (r.error != null) {
+        this.hooks.log(`Cannot encode ${fn.name}: ${r.error}`, "error");
+        return;
+      }
       try {
-        const data = encodeCall(catalog, fn.name, args);
+        const data = encodeCallValues(catalog, fn.name, r.values!);
         void copyToClipboard(data);
         this.hooks.log(`Copied calldata for ${fn.name}`);
       } catch {
@@ -388,6 +408,9 @@ function emptyLine(text: string): HTMLElement {
 }
 function escape(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function sigParams(inputs: { type: string; name: string }[]): string {
+  return inputs.map((i) => `${escape(i.type)} ${escape(i.name)}`).join(", ");
 }
 function hexBytes(hex: string): number {
   const h = hex.startsWith("0x") ? hex.slice(2) : hex;
