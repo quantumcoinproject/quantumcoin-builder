@@ -31,6 +31,7 @@ export interface CompileResult {
 export interface CompileSettings {
   optimizer: { enabled: boolean; runs: number };
   evmVersion?: string;
+  remappings?: string[];
 }
 
 export const DEFAULT_SETTINGS: CompileSettings = {

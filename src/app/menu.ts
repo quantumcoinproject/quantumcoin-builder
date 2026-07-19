@@ -23,6 +23,7 @@ export const MENUS: MenuDef[] = [
       { id: "file.newFolder", label: "New Folder\u2026" },
       { id: "file.open", label: "Open File\u2026", shortcut: "Ctrl+O" },
       { id: "file.importZip", label: "Import from Zip\u2026" },
+      { id: "file.addNpmDependency", label: "Add NPM Dependency\u2026" },
       { id: "file.download", label: "Download Project (.zip)", separatorAfter: true },
       { id: "file.newWorkspace", label: "New Workspace\u2026" },
       { id: "file.openWorkspace", label: "Open Workspace", children: [] },

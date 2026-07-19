@@ -1,6 +1,7 @@
 // Small promise-based modal dialogs (reuse the .modal styles in app.css).
 
 import type { WorkspaceTemplate } from "../files/workspace";
+import type { DependencyAudit, DependencyProgress } from "../npm/npmResolver";
 
 /** Prompt for a single line of text. Resolves null on cancel/backdrop/Escape. */
 export function promptText(
@@ -337,4 +338,137 @@ export function confirmDialog(title: string, message: string, okLabel = "OK"): P
       { once: true },
     );
   });
+}
+
+export interface ProgressDialogHandle {
+  update(status: DependencyProgress): void;
+  close(): void;
+}
+
+/** Non-dismissible package download progress dialog. */
+export function npmProgressDialog(initial: DependencyProgress): ProgressDialogHandle {
+  const root = document.createElement("div");
+  root.className = "modal-root";
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal npm-progress-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+
+  const h = document.createElement("h3");
+  h.textContent = "NPM Dependency";
+  const pkg = document.createElement("div");
+  pkg.className = "npm-package-name";
+  const phase = document.createElement("div");
+  phase.className = "npm-progress-phase";
+  const progress = document.createElement("progress");
+  progress.max = 100;
+  const detail = document.createElement("div");
+  detail.className = "npm-progress-detail";
+  modal.append(h, pkg, phase, progress, detail);
+  root.append(backdrop, modal);
+  document.body.appendChild(root);
+
+  const update = (status: DependencyProgress): void => {
+    pkg.textContent = `${status.packageName}@${status.version}`;
+    phase.textContent = status.phase;
+    if (status.total && status.total > 0) {
+      progress.value = Math.min(100, (status.received ?? 0) / status.total * 100);
+      detail.textContent = `${formatDialogBytes(status.received ?? 0)} / ${formatDialogBytes(status.total)}`;
+    } else {
+      progress.removeAttribute("value");
+      detail.textContent = status.received ? `${formatDialogBytes(status.received)} received` : "";
+    }
+  };
+  update(initial);
+  return { update, close: () => root.remove() };
+}
+
+/**
+ * Explicit dependency-risk consent. "No" is intentionally highlighted and
+ * focused so Enter, Escape, or backdrop dismissal all choose the safe default.
+ */
+export function confirmNpmRisk(audit: DependencyAudit): Promise<boolean> {
+  return new Promise((resolve) => {
+    const root = document.createElement("div");
+    root.className = "modal-root";
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "modal npm-risk-modal";
+    modal.setAttribute("role", "alertdialog");
+    modal.setAttribute("aria-modal", "true");
+
+    const h = document.createElement("h3");
+    h.textContent = "Dependency security warning";
+    const intro = document.createElement("p");
+    intro.textContent = audit.unavailable
+      ? `The vulnerability audit for ${audit.packageName}@${audit.version} could not be completed.`
+      : `${audit.packageName}@${audit.version} has ${audit.advisories.length} known vulnerability advisory/advisories.`;
+    const explanation = document.createElement("p");
+    explanation.textContent =
+      "The package has not been downloaded. Continue only if you understand and accept this risk.";
+    modal.append(h, intro);
+
+    if (audit.unavailable) {
+      const reason = document.createElement("div");
+      reason.className = "npm-risk-detail";
+      reason.textContent = audit.unavailable;
+      modal.appendChild(reason);
+    } else {
+      const list = document.createElement("ul");
+      list.className = "npm-advisories";
+      for (const advisory of audit.advisories.slice(0, 20)) {
+        const item = document.createElement("li");
+        item.textContent = `[${advisory.severity}] ${advisory.id}: ${advisory.summary}`;
+        list.appendChild(item);
+      }
+      if (audit.advisories.length > 20) {
+        const item = document.createElement("li");
+        item.textContent = `…and ${audit.advisories.length - 20} more`;
+        list.appendChild(item);
+      }
+      modal.appendChild(list);
+    }
+    modal.appendChild(explanation);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const yes = document.createElement("button");
+    yes.className = "btn ghost";
+    yes.textContent = "Yes, continue";
+    const no = document.createElement("button");
+    no.className = "btn";
+    no.textContent = "No";
+    actions.append(yes, no);
+    modal.appendChild(actions);
+    root.append(backdrop, modal);
+    document.body.appendChild(root);
+    no.focus();
+
+    let settled = false;
+    const done = (answer: boolean): void => {
+      if (settled) return;
+      settled = true;
+      root.remove();
+      resolve(answer);
+    };
+    yes.addEventListener("click", () => done(true));
+    no.addEventListener("click", () => done(false));
+    backdrop.addEventListener("click", () => done(false));
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Escape") done(false);
+      },
+      { once: true },
+    );
+  });
+}
+
+function formatDialogBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

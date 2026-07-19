@@ -262,6 +262,18 @@ select.arg-bool { width: auto; min-width: 90px; }
 }
 .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 .modal label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-muted); }
+.npm-progress-modal progress { width: 100%; height: 10px; accent-color: var(--accent); }
+.npm-package-name { margin-bottom: 8px; color: var(--text-primary); font-family: var(--font-mono); }
+.npm-progress-phase, .npm-progress-detail { margin: 5px 0; color: var(--text-muted); font-size: 12px; }
+.npm-progress-detail { text-align: right; min-height: 16px; }
+.npm-risk-modal { width: min(620px, calc(100vw - 32px)); }
+.npm-risk-modal p { color: var(--text-muted); font-size: 12.5px; line-height: 1.45; }
+.npm-risk-detail, .npm-advisories {
+  max-height: 220px; overflow: auto; padding: 8px 10px; margin: 8px 0;
+  border: 1px solid var(--border); background: var(--bg-editor); color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45;
+}
+.npm-advisories { padding-left: 28px; }
 
 /* ---------- Explorer: workspace switcher + folder tree ---------- */
 .explorer-actions { display: flex; gap: 2px; }

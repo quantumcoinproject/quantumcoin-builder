@@ -38,6 +38,8 @@ interface WorkspaceData {
   files: Record<string, string>;
   folders: string[];
   active: string;
+  /** Resolved npm package name -> exact version installed under .deps/npm. */
+  dependencies: Record<string, string>;
 }
 
 export interface RecentFile {
@@ -128,7 +130,12 @@ export class Workspace {
     try {
       const d = JSON.parse(raw) as Partial<WorkspaceData>;
       if (!d || typeof d !== "object" || Array.isArray(d)) throw new Error("not an object");
-      return { files: d.files ?? {}, folders: d.folders ?? [], active: d.active ?? "" };
+      return {
+        files: d.files ?? {},
+        folders: d.folders ?? [],
+        active: d.active ?? "",
+        dependencies: d.dependencies ?? {},
+      };
     } catch {
       // Corrupt: present but unparseable (e.g. a power-loss-truncated write).
       // Preserve the original bytes before any caller seeds + overwrites this key.
@@ -237,10 +244,11 @@ export class Workspace {
         },
         folders: [],
         active: "Storage.sol",
+        dependencies: {},
       };
     }
     const name = "Untitled.sol";
-    return { files: { [name]: skeleton(name) }, folders: [], active: name };
+    return { files: { [name]: skeleton(name) }, folders: [], active: name, dependencies: {} };
   }
 
   // ---- Events ----
@@ -445,7 +453,7 @@ export class Workspace {
     this.index.list.push(meta);
     this.index.activeId = meta.id;
     meta.lastOpenedAt = Date.now();
-    this.data = { files: {}, folders: [], active: "" };
+    this.data = { files: {}, folders: [], active: "", dependencies: {} };
     const paths = files.map((f) => this.addFileNoClobber(f.name, f.content));
     this.data.active = paths[0] ?? "";
     this.recordRecentWorkspace(meta);
@@ -471,6 +479,7 @@ export class Workspace {
       files: { ...src.files },
       folders: [...src.folders],
       active: src.active,
+      dependencies: { ...src.dependencies },
     });
     this.switchTo(meta.id);
     return meta;
@@ -560,7 +569,52 @@ export class Workspace {
 
   /** All sources (for multi-file compilation with workspace-relative imports). */
   allSources(): Record<string, string> {
-    return { ...this.data.files };
+    return Object.fromEntries(
+      Object.entries(this.data.files).filter(([path]) => path.toLowerCase().endsWith(".sol")),
+    );
+  }
+
+  dependencyVersion(name: string): string | null {
+    return this.data.dependencies[name] ?? null;
+  }
+
+  /** Solidity Standard JSON remappings for packages cached under `.deps/npm`. */
+  dependencyRemappings(): string[] {
+    const out: string[] = [];
+    for (const [name, version] of Object.entries(this.data.dependencies)) {
+      const root = `.deps/npm/${name}@${version}/`;
+      out.push(`${name}/=${root}`);
+      out.push(`${name}@${version}/=${root}`);
+    }
+    return out;
+  }
+
+  /**
+   * Atomically replace one npm package in the active workspace. Only the files
+   * supplied by the verified resolver are written; stale versions are removed.
+   */
+  installDependency(name: string, version: string, files: { path: string; content: string }[]): void {
+    const oldVersion = this.data.dependencies[name];
+    if (oldVersion) {
+      const oldRoot = `.deps/npm/${name}@${oldVersion}/`;
+      for (const path of Object.keys(this.data.files)) {
+        if (path.startsWith(oldRoot)) delete this.data.files[path];
+      }
+      this.data.folders = this.data.folders.filter((f) => !f.startsWith(oldRoot.slice(0, -1)));
+    }
+
+    const root = `.deps/npm/${name}@${version}`;
+    for (const file of files) {
+      const rawPath = `${root}/${file.path}`;
+      const path = normalizePath(rawPath, false);
+      if (path !== rawPath || !path.startsWith(`${root}/`)) {
+        throw new Error(`Unsafe or overlong npm package path: ${file.path}`);
+      }
+      this.data.files[path] = file.content;
+      this.ensureParents(path);
+    }
+    this.data.dependencies[name] = version;
+    this.emit();
   }
 
   // ---- Internals ----

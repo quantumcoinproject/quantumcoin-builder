@@ -14,6 +14,12 @@ export const MAX_ZIP_TOTAL_BYTES = 25 * 1024 * 1024; // archive + total-uncompre
 export const MAX_PATH_LEN = 200; // normalized path length
 export const MAX_PATH_DEPTH = 12; // folder nesting depth
 
+// ---- NPM dependency caps ----
+export const MAX_NPM_METADATA_BYTES = 5 * 1024 * 1024;
+export const MAX_NPM_TARBALL_BYTES = 25 * 1024 * 1024;
+export const MAX_NPM_UNPACKED_BYTES = 40 * 1024 * 1024;
+export const MAX_NPM_FILES = 2000;
+
 // ---- Paste warning thresholds ----
 export const PASTE_WARN_CHARS = 5000;
 export const PASTE_WARN_LINES = 200;

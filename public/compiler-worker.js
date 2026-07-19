@@ -211,6 +211,9 @@ function buildStandardInput(sources, settings) {
     },
   };
   if (s.evmVersion) input.settings.evmVersion = s.evmVersion;
+  if (Array.isArray(s.remappings) && s.remappings.length) {
+    input.settings.remappings = s.remappings.slice();
+  }
   return input;
 }
 

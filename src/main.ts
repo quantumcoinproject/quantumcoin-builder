@@ -6,7 +6,16 @@ import { DEFAULT_SETTINGS, type EditorDiagnostic } from "./compiler/types";
 import { SidePanel } from "./panels/sidePanel";
 import { Terminal } from "./app/terminal";
 import { MenuBar, MENUS, type MenuDef, type MenuItem } from "./app/menu";
-import { promptText, newWorkspaceDialog, confirmDialog, alertDialog, choiceDialog } from "./app/dialogs";
+import {
+  promptText,
+  newWorkspaceDialog,
+  confirmDialog,
+  alertDialog,
+  choiceDialog,
+  confirmNpmRisk,
+  npmProgressDialog,
+  type ProgressDialogHandle,
+} from "./app/dialogs";
 import { BootstrapOverlay } from "./app/bootstrap";
 import { brandIcon } from "./app/brand";
 import { Store } from "./app/state";
@@ -17,11 +26,27 @@ import { initSdk } from "./abi/sdk";
 import { readZip } from "./export/zip";
 import { downloadProjectZip } from "./export/download";
 import { MAX_FILE_BYTES, MAX_SOURCE_CHARS, MAX_ZIP_TOTAL_BYTES } from "./app/limits";
+import { NpmInstallCancelled, NpmResolver } from "./npm/npmResolver";
 
 const store = new Store();
 const workspace = new Workspace();
 const compiler = new CompilerClient();
 const terminal = new Terminal();
+let npmProgress: ProgressDialogHandle | null = null;
+const npmResolver = new NpmResolver(workspace, {
+  confirmRisk: (audit) => confirmNpmRisk(audit),
+  progress: (status) => {
+    if (!status) {
+      npmProgress?.close();
+      npmProgress = null;
+    } else if (npmProgress) {
+      npmProgress.update(status);
+    } else {
+      npmProgress = npmProgressDialog(status);
+    }
+  },
+  log: (message, kind) => terminal.log(message, kind),
+});
 
 // Surface non-fatal persistence warnings (e.g. localStorage quota) in the terminal.
 workspace.onWarn((message) => terminal.log(message, "warning"));
@@ -511,6 +536,25 @@ function pickFile(accept: string, onPick: (f: File) => void): void {
   input.click();
 }
 
+async function addNpmDependency(): Promise<void> {
+  const spec = await promptText(
+    "Add NPM Dependency",
+    "Package",
+    "@openzeppelin/contracts",
+    "Resolve",
+  );
+  if (!spec) return;
+  workspace.write(editor.getPath(), editor.getValue());
+  try {
+    await npmResolver.install(spec);
+    explorer.render();
+    await compileCurrent();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    terminal.log(message, err instanceof NpmInstallCancelled ? "warning" : "error");
+  }
+}
+
 // ---- Compile ----
 async function compileCurrent(): Promise<void> {
   workspace.write(editor.getPath(), editor.getValue());
@@ -520,10 +564,17 @@ async function compileCurrent(): Promise<void> {
     return;
   }
   const active = workspace.getActive();
-  const sources = workspace.allSources();
-  terminal.log(`Compiling ${active} with Solidity 0.7.6 (soljson-v32b.8.12.js)\u2026`);
   try {
-    const result = await compiler.compile(sources, DEFAULT_SETTINGS, (stage) =>
+    const installed = await npmResolver.ensureImports(workspace.allSources());
+    if (installed) explorer.render();
+    const sources = workspace.allSources();
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      optimizer: { ...DEFAULT_SETTINGS.optimizer },
+      remappings: workspace.dependencyRemappings(),
+    };
+    terminal.log(`Compiling ${active} with Solidity 0.7.6 (soljson-v32b.8.12.js)\u2026`);
+    const result = await compiler.compile(sources, settings, (stage) =>
       terminal.log(`  ${stage}\u2026`),
     );
     lastDiagnostics = result.diagnostics;
@@ -539,7 +590,12 @@ async function compileCurrent(): Promise<void> {
       terminal.log(`Compiled successfully: ${names}. ${result.warningCount} warning(s).`, "success");
     }
   } catch (err) {
-    terminal.log("Compiler error: " + (err instanceof Error ? err.message : String(err)), "error");
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof NpmInstallCancelled) {
+      terminal.log(message, "warning");
+    } else {
+      terminal.log("Compiler/dependency error: " + message, "error");
+    }
   }
 }
 
@@ -575,6 +631,7 @@ function handleAction(id: string): void {
     case "file.recent": break; // parent submenu; no direct action
     case "file.open": importFromFile(); break;
     case "file.importZip": importFromZip(); break;
+    case "file.addNpmDependency": void addNpmDependency(); break;
     case "file.download": downloadProject(); break;
     case "file.save":
       workspace.write(editor.getPath(), editor.getValue());

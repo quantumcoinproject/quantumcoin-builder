@@ -1,4 +1,5 @@
 # SHA-256 of the vendored QuantumCoin Solidity 7.6 compiler (soljson-v32b.8.12.js).
 # Pinning enables the build-time integrity gate in scripts/vendor-compiler.js.
-# Source: https://github.com/quantumcoinproject/Solidity/releases/download/v32b.8.12/soljson.js
+# Source: the @quantumcoin/solc npm package (soljson.js, built from
+#   https://github.com/quantumcoinproject/Solidity/releases/tag/v32b.8.12).
 64aa4703ba11cb1ab4be0d04baf1e37a9ced50516a6587cbb4b5734da9129739
