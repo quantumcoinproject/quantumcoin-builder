@@ -4,7 +4,7 @@
  *
  * Copies the pinned QuantumCoin Solidity 7.6 compiler (soljson.js) from the
  * `@quantumcoin/solc` npm package (a build-time devDependency) into
- * public/assets/compilers/soljson-v32b.8.12.js so it is served same-origin and
+ * public/assets/compilers/soljson-v32b.8.14.js so it is served same-origin and
  * loaded by the compiler Web Worker via importScripts. The compiler ships inside
  * the package, so there is NO network access at build time and it is NEVER
  * fetched at runtime.
@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(root, "public", "assets", "compilers");
-const OUT_FILE = join(OUT_DIR, "soljson-v32b.8.12.js");
+const OUT_FILE = join(OUT_DIR, "soljson-v32b.8.14.js");
 const SHA_FILE = join(root, "scripts", "compiler-sha256.txt");
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");

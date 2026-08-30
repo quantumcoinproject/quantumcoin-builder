@@ -11,7 +11,7 @@
  * same-origin asset is used (worker-src 'self' per CSP).
  */
 
-var SOLJSON_URL = "assets/compilers/soljson-v32b.8.12.js";
+var SOLJSON_URL = "assets/compilers/soljson-v32b.8.14.js";
 var readyPromise = null;
 var compileFn = null;
 
