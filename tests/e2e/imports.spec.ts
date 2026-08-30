@@ -34,7 +34,7 @@ contract Main {
 `;
 
 test("resolves a nested relative in-project import during compilation", async ({ page, baseURL }) => {
-  const probe = await page.request.get(`${baseURL}/assets/compilers/soljson-v32b.8.12.js`);
+  const probe = await page.request.get(`${baseURL}/assets/compilers/soljson-v32b.8.14.js`);
   const contentType = probe.headers()["content-type"] ?? "";
   const vendored = probe.ok() && /javascript|ecmascript/i.test(contentType);
   test.skip(!vendored, "soljson compiler not vendored — run `npm run vendor:compiler`");

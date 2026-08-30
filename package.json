@@ -1,6 +1,6 @@
 {
   "name": "quantumcoin-builder",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Browser-based smart contracts development platform for QuantumCoin",
   "type": "module",
@@ -19,12 +19,12 @@
     "verify:self-contained": "node scripts/verify-self-contained.js"
   },
   "dependencies": {
-    "quantumcoin": "^8.0.3",
+    "quantumcoin": "^8.0.4",
     "quantum-coin-js-sdk": "^2.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
-    "@quantumcoin/solc": "0.7.6",
+    "@quantumcoin/solc": "0.7.7",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2",
     "vite": "^8.0.16",

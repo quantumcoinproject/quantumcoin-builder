@@ -11,7 +11,7 @@ test("compiles the sample contract and exposes artifacts", async ({ page, baseUR
   // fallback for unknown paths, so `probe.ok()` alone is not enough to tell
   // whether the compiler was actually vendored. Confirm the response is really
   // the JS asset before running the (otherwise failing) compile flow.
-  const probe = await page.request.get(`${baseURL}/assets/compilers/soljson-v32b.8.12.js`);
+  const probe = await page.request.get(`${baseURL}/assets/compilers/soljson-v32b.8.14.js`);
   const contentType = probe.headers()["content-type"] ?? "";
   const vendored = probe.ok() && /javascript|ecmascript/i.test(contentType);
   test.skip(!vendored, "soljson compiler not vendored — run `npm run vendor:compiler`");

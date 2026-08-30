@@ -573,7 +573,7 @@ async function compileCurrent(): Promise<void> {
       optimizer: { ...DEFAULT_SETTINGS.optimizer },
       remappings: workspace.dependencyRemappings(),
     };
-    terminal.log(`Compiling ${active} with Solidity 0.7.6 (soljson-v32b.8.12.js)\u2026`);
+    terminal.log(`Compiling ${active} with Solidity 0.7.6 (soljson-v32b.8.14.js)\u2026`);
     const result = await compiler.compile(sources, settings, (stage) =>
       terminal.log(`  ${stage}\u2026`),
     );

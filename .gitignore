@@ -4,7 +4,7 @@ dist/
 *.log
 
 # Vendored at build time (fetched by scripts/vendor-*.js) — not committed.
-public/assets/compilers/soljson-v32b.8.12.js
+public/assets/compilers/soljson-v32b.8.14.js
 public/assets/icons/quantum-coin-icon.png
 
 # Test artifacts

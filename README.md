@@ -9,7 +9,7 @@ bytecode** — with **no deploy, wallet, or network flows**.
 
 - **Web only**, static SPA (Vite + TypeScript, vanilla DOM — no React/Vue/Svelte).
 - **In-house editor (`QCEditor`)**
-- **Solidity 7.6 only** — single pinned compiler `soljson-v32b.8.12.js`.
+- **Solidity 7.6 only** — single pinned compiler `soljson-v32b.8.14.js`.
 - **Two runtime dependencies only**: `quantumcoin` and `quantum-coin-js-sdk`.
 - **Fully self-contained** `dist/` — zero runtime CDN/third-party asset fetches.
 
